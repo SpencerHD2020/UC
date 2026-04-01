@@ -7,7 +7,7 @@ use crate::scanner::Manifest;
 use anyhow::{bail, Result};
 
 /// Every language uc knows how to compile.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Language {
     C,
     Cpp,

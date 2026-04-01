@@ -1,7 +1,7 @@
 use super::DependencySet;
 use crate::scanner::Manifest;
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub fn resolve(root: &Path, manifest: &Manifest) -> Result<DependencySet> {
     let mut deps = DependencySet::default();

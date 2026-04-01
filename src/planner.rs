@@ -284,7 +284,7 @@ fn plan_java(root: &Path, out: &Path, deps: &DependencySet, manifest: &Manifest)
     })
 }
 
-fn plan_maven(root: &Path, out: &Path) -> Result<BuildPlan> {
+fn plan_maven(root: &Path, _out: &Path) -> Result<BuildPlan> {
     let mvn = which("mvn")
         .or_else(|| which("mvnw").map(|_| "./mvnw".into()))
         .ok_or_else(|| anyhow::anyhow!("'mvn' not found on PATH"))?;
@@ -301,7 +301,7 @@ fn plan_maven(root: &Path, out: &Path) -> Result<BuildPlan> {
     })
 }
 
-fn plan_gradle(root: &Path, out: &Path) -> Result<BuildPlan> {
+fn plan_gradle(root: &Path, _out: &Path) -> Result<BuildPlan> {
     let gradle = if root.join("gradlew").exists() {
         if cfg!(windows) { ".\\gradlew.bat".into() } else { "./gradlew".into() }
     } else {
@@ -320,7 +320,7 @@ fn plan_gradle(root: &Path, out: &Path) -> Result<BuildPlan> {
     })
 }
 
-fn plan_kotlin(root: &Path, out: &Path, deps: &DependencySet, manifest: &Manifest) -> Result<BuildPlan> {
+fn plan_kotlin(root: &Path, out: &Path, _deps: &DependencySet, manifest: &Manifest) -> Result<BuildPlan> {
     // Gradle is the standard for Kotlin projects
     if manifest.config_files.iter().any(|f| {
         let n = f.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -367,7 +367,7 @@ fn plan_rust(root: &Path, _out: &Path) -> Result<BuildPlan> {
 // Go
 // ---------------------------------------------------------------------------
 
-fn plan_go(root: &Path, out: &Path, manifest: &Manifest) -> Result<BuildPlan> {
+fn plan_go(root: &Path, out: &Path, _manifest: &Manifest) -> Result<BuildPlan> {
     let go = which("go").ok_or_else(|| anyhow::anyhow!("'go' not found on PATH"))?;
     let exe = exe_name(root, out);
 

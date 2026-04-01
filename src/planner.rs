@@ -538,114 +538,10 @@ fn which(name: &str) -> Option<String> {
     }
 }
 
-/// Attempt to find a C++ compiler on Visual Studio installation on Windows.
-fn find_vs_cpp_compiler() -> Option<String> {
-    #[cfg(windows)]
-    {
-        // Try common Visual Studio paths (2022, 2019)
-        let vs_paths = vec![
-            r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC",
-            r"C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC",
-            r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC",
-            r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC",
-            r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\VC\Tools\MSVC",
-            r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Tools\MSVC",
-        ];
-
-        for vs_path in vs_paths {
-            let path = PathBuf::from(vs_path);
-            if let Ok(entries) = std::fs::read_dir(&path) {
-                // Find the latest MSVC version directory
-                if let Some(latest) = entries
-                    .flatten()
-                    .filter(|e| e.path().is_dir())
-                    .map(|e| e.path())
-                    .max()
-                {
-                    let cl_path = latest.join("bin").join("Hostx64").join("x64").join("cl.exe");
-                    if cl_path.exists() {
-                        return Some(cl_path.to_string_lossy().to_string());
-                    }
-                    // Fallback: try Hostx86
-                    let cl_path = latest.join("bin").join("Hostx86").join("x86").join("cl.exe");
-                    if cl_path.exists() {
-                        return Some(cl_path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Attempt to find MinGW or other GCC installations.
-fn find_gcc_cpp_compiler() -> Option<String> {
-    // Check common MinGW paths on Windows
-    #[cfg(windows)]
-    {
-        let minigw_paths = vec![
-            r"C:\Program Files\mingw-w64",
-            r"C:\Program Files (x86)\mingw-w64",
-            r"C:\mingw-w64",
-            r"C:\mingw",
-        ];
-
-        for base_path in minigw_paths {
-            let path = PathBuf::from(base_path);
-            if let Ok(entries) = std::fs::read_dir(&path) {
-                for entry in entries.flatten() {
-                    let bin_path = entry.path().join("bin").join("g++.exe");
-                    if bin_path.exists() {
-                        return Some(bin_path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    // Try PATH as fallback
-    which("g++")
-}
-
-/// Attempt to find Clang/LLVM installations.
-fn find_clang_cpp_compiler() -> Option<String> {
-    #[cfg(windows)]
-    {
-        let llvm_paths = vec![
-            r"C:\Program Files\LLVM\bin\clang++.exe",
-            r"C:\Program Files (x86)\LLVM\bin\clang++.exe",
-        ];
-
-        for path in llvm_paths {
-            let p = PathBuf::from(path);
-            if p.exists() {
-                return Some(p.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    // Try PATH
-    which("clang++")
-}
-
 /// Attempt to find .NET SDK.
 fn find_dotnet() -> Result<String> {
     if let Some(dotnet) = which("dotnet") {
         return Ok(dotnet);
-    }
-
-    #[cfg(windows)]
-    {
-        let dotnet_paths = vec![
-            r"C:\Program Files\dotnet\dotnet.exe",
-            r"C:\Program Files (x86)\dotnet\dotnet.exe",
-        ];
-        for path in dotnet_paths {
-            let p = PathBuf::from(path);
-            if p.exists() {
-                return Ok(p.to_string_lossy().to_string());
-            }
-        }
     }
 
     bail!(
@@ -654,9 +550,9 @@ fn find_dotnet() -> Result<String> {
          2. Download the latest .NET SDK (not just Runtime)\n\
          3. Run the installer and follow the prompts\n\
          4. Restart your terminal after installation\n\n\
-         Alternatively, you can:\n\
-         - Use Visual Studio (includes .NET SDK): https://visualstudio.microsoft.com/\n\
-         - Use Visual Studio Code with C# extension\n\n\
+         If installation doesn't add dotnet to PATH:\n\
+         - Set the DOTNET environment variable:\n\
+            set DOTNET=/path/to/dotnet\n\n\
          Verify installation by running: dotnet --version"
     )
 }
@@ -735,108 +631,127 @@ fn find_gradle() -> Result<String> {
 }
 
 fn find_c_compiler() -> Result<String> {
-    // Windows: prefer cl.exe; fallback to gcc/clang
+    // 1. Check environment variables first
+    if let Ok(cc) = std::env::var("CC_COMPILER") {
+        return Ok(cc);
+    }
+    if let Ok(cc) = std::env::var("CC") {
+        return Ok(cc);
+    }
+
+    // 2. Check PATH for standard names
     if cfg!(windows) {
-        // Try on PATH first
         if let Some(cl) = which("cl") { return Ok(cl); }
-        
-        // Try Visual Studio installation
-        if let Some(cl) = find_vs_cpp_compiler() {
-            return Ok(cl.replace("++", "").replace("clang", "cl"));
-        }
-        
-        // Try GCC/MinGW
-        if let Some(gcc) = find_gcc_cpp_compiler() {
-            return Ok(gcc.replace("++", ""));
-        }
-        
-        // Try Clang/LLVM
-        if let Some(clang) = find_clang_cpp_compiler() {
-            return Ok(clang.replace("++", ""));
-        }
+        if let Some(gcc) = which("gcc") { return Ok(gcc); }
+        if let Some(clang) = which("clang") { return Ok(clang); }
     } else {
         if let Some(gcc) = which("gcc") { return Ok(gcc); }
         if let Some(clang) = which("clang") { return Ok(clang); }
     }
 
     let error_msg = if cfg!(windows) {
-        "No C compiler found! The following options are available:\n\n\
-         1. **Visual Studio** (recommended for C++ development):\n\
-            - Download: https://visualstudio.microsoft.com/downloads/\n\
-            - Choose \"Desktop development with C++\"\n\
-            - Install and reopen this terminal\n\n\
-         2. **MinGW-w64** (lightweight alternative):\n\
-            - Download: https://www.mingw-w64.org/\n\
-            - Installation instructions: https://www.mingw-w64.org/online-installer/\n\
-            - Add the bin/ directory to your PATH\n\n\
-         3. **LLVM/Clang**:\n\
-            - Download: https://releases.llvm.org/\n\
-            - Ensure it's in your PATH"
+        "No C compiler found on PATH!\n\n\
+         To fix this, choose one of the following options:\n\n\
+         **Option 1: Set CC environment variable**\n\
+            set CC=cl\n\
+            or\n\
+            set CC=gcc\n\n\
+         **Option 2: Install and add to PATH**\n\
+            1. Visual Studio (Microsoft C/C++ compiler):\n\
+               Download: https://visualstudio.microsoft.com/downloads/\n\
+               Install \"Desktop development with C++\"\n\n\
+            2. MinGW-w64 (GCC for Windows):\n\
+               Download: https://www.mingw-w64.org/\n\
+               Add <install>/bin to your PATH\n\n\
+            3. LLVM/Clang:\n\
+               Download: https://releases.llvm.org/\n\
+               Add <install>/bin to your PATH\n\n\
+         **Option 3: Add compiler to PATH manually**\n\
+            If your compiler is installed but not on PATH:\n\
+            1. Find the bin/ directory of your compiler\n\
+            2. Add it to your system PATH environment variable\n\
+            3. Restart your terminal"
+    } else if cfg!(target_os = "macos") {
+        "No C compiler found on PATH!\n\n\
+         To fix this, install Xcode command-line tools:\n\
+            xcode-select --install\n\n\
+         Or set the CC environment variable:\n\
+            export CC=/path/to/gcc\n\
+            export CC=/path/to/clang"
     } else {
-        "No C compiler found! Please install one of the following:\n\n\
-         Linux (Debian/Ubuntu): sudo apt-get install build-essential\n\
-         Linux (Fedora/RHEL): sudo dnf install gcc gcc-c++\n\
-         macOS: Install Xcode Command Line Tools: xcode-select --install"
+        "No C compiler found on PATH!\n\n\
+         Install using your package manager:\n\
+            Debian/Ubuntu: sudo apt install build-essential\n\
+            Fedora/RHEL: sudo dnf install gcc\n\
+            Arch: sudo pacman -S base-devel\n\n\
+         Or set the CC environment variable:\n\
+            export CC=/path/to/gcc"
     };
 
     bail!("{}", error_msg)
 }
 
 fn find_cpp_compiler() -> Result<String> {
-    // Windows: prefer cl.exe; fallback to gcc/clang
+    // 1. Check environment variables first
+    if let Ok(cxx) = std::env::var("CXX_COMPILER") {
+        return Ok(cxx);
+    }
+    if let Ok(cxx) = std::env::var("CXX") {
+        return Ok(cxx);
+    }
+
+    // 2. Check PATH for standard names
     if cfg!(windows) {
-        // Try on PATH first (common for cl.exe when VS is set up)
         if let Some(cl) = which("cl") { return Ok(cl); }
         if let Some(gpp) = which("g++") { return Ok(gpp); }
         if let Some(clangpp) = which("clang++") { return Ok(clangpp); }
-        
-        // Try Visual Studio installation directories
-        if let Some(cl) = find_vs_cpp_compiler() {
-            return Ok(cl);
-        }
-        
-        // Try GCC/MinGW
-        if let Some(gpp) = find_gcc_cpp_compiler() {
-            return Ok(gpp);
-        }
-        
-        // Try Clang/LLVM
-        if let Some(clangpp) = find_clang_cpp_compiler() {
-            return Ok(clangpp);
-        }
     } else {
         if let Some(gpp) = which("g++") { return Ok(gpp); }
         if let Some(clangpp) = which("clang++") { return Ok(clangpp); }
     }
 
     let error_msg = if cfg!(windows) {
-        "No C++ compiler found! The following options are available:\n\n\
-         1. **Visual Studio** (recommended for C/C++ development in Qt):\n\
-            - Download: https://visualstudio.microsoft.com/downloads/\n\
-            - During installation, select \"Desktop development with C++\"\n\
-            - This gives you the MSVC compiler (cl.exe) + Qt integration\n\n\
-         2. **MinGW-w64** (lightweight GCC alternative):\n\
-            - Download: https://www.mingw-w64.org/\n\
-            - Installation guide: https://www.mingw-w64.org/online-installer/\n\
-            - After installation, add the bin/ directory to your PATH\n\
-            - Restart your terminal after PATH changes\n\n\
-         3. **LLVM/Clang**:\n\
-            - Download: https://releases.llvm.org/download.html\n\
-            - Ensure installation directory is added to your PATH\n\n\
-         For Qt development specifically:\n\
-            - Consider using Qt Creator which bundles MinGW: https://www.qt.io/download\n\
-            - Or Visual Studio with Qt Tools extension"
+        "No C++ compiler found on PATH!\n\n\
+         To fix this, choose one of the following options:\n\n\
+         **Option 1: Set CXX environment variable**\n\
+            set CXX=cl\n\
+            or\n\
+            set CXX=g++\n\n\
+         **Option 2: Install and add to PATH**\n\
+            1. Visual Studio (Microsoft MSVC compiler) - Recommended for Qt:\n\
+               Download: https://visualstudio.microsoft.com/downloads/\n\
+               Install \"Desktop development with C++\"\n\n\
+            2. MinGW-w64 (GCC for Windows):\n\
+               Download: https://www.mingw-w64.org/\n\
+               Add <install>/bin to your PATH\n\n\
+            3. Qt Creator (bundles MinGW):\n\
+               Download: https://www.qt.io/download-open-source\n\n\
+            4. LLVM/Clang:\n\
+               Download: https://releases.llvm.org/\n\
+               Add <install>/bin to your PATH\n\n\
+         **Option 3: Add compiler to PATH manually**\n\
+            If your compiler is installed but not on PATH:\n\
+            1. Find the bin/ directory of your compiler\n\
+            2. Add it to your system PATH environment variable\n\
+            3. Restart your terminal\n\n\
+         **For Qt Development:**\n\
+            Recommended setup: Visual Studio (cl.exe) + Qt tools\n\
+            See: https://doc.qt.io/qt-6/windows.html"
+    } else if cfg!(target_os = "macos") {
+        "No C++ compiler found on PATH!\n\n\
+         To fix this, install Xcode command-line tools:\n\
+            xcode-select --install\n\n\
+         Or set the CXX environment variable:\n\
+            export CXX=/path/to/g++\n\
+            export CXX=/path/to/clang++"
     } else {
-        "No C++ compiler found! Install one of the following:\n\n\
-         **Linux (Debian/Ubuntu):**\n\
-            sudo apt-get update\n\
-            sudo apt-get install build-essential g++ gcc\n\n\
-         **Linux (Fedora/RHEL):**\n\
-            sudo dnf install gcc gcc-c++ make\n\n\
-         **macOS:**\n\
-            xcode-select --install\n\
-            # Or install from: https://developer.apple.com/download/\n\n\
-         **Note:** After installation, you may need to restart your terminal."
+        "No C++ compiler found on PATH!\n\n\
+         Install using your package manager:\n\
+            Debian/Ubuntu: sudo apt install build-essential g++\n\
+            Fedora/RHEL: sudo dnf install gcc-c++\n\
+            Arch: sudo pacman -S base-devel\n\n\
+         Or set the CXX environment variable:\n\
+            export CXX=/path/to/g++"
     };
 
     bail!("{}", error_msg)
